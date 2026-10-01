@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cyber Flip - 記憶翻牌挑戰</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* 3D 翻轉卡片樣式 */
+    .perspective-1000 {
+      perspective: 1000px;
+    }
+    .transform-style-3d {
+      transform-style: preserve-3d;
+    }
+    .backface-hidden {
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+    .rotate-y-180 {
+      transform: rotateY(180deg);
+    }
+    /* 配對成功的縮小淡出消失特效 */
+    @keyframes matchedDisappear {
+      0% {
+        transform: scale(1) rotateY(180deg);
+        opacity: 1;
+      }
+      40% {
+        transform: scale(1.15) rotateY(180deg);
+        filter: brightness(1.3);
+        opacity: 1;
+      }
+      100% {
+        transform: scale(0) rotateY(180deg);
+        opacity: 0;
+        visibility: hidden;
+      }
+    }
+    .animate-matched {
+      animation: matchedDisappear 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      pointer-events: none;
+    }
+    /* 配對失敗的晃動特效 */
+    @keyframes shakeCard {
+      0%, 100% { transform: translateX(0) rotateY(180deg); }
+      20%, 60% { transform: translateX(-4px) rotateY(180deg); }
+      40%, 80% { transform: translateX(4px) rotateY(180deg); }
+    }
+    .animate-shake {
+      animation: shakeCard 0.4s ease-in-out forwards;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-between p-4 sm:p-6 antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- 頂部資訊與控制欄 -->
+  <header class="w-full max-w-xl mx-auto flex flex-col items-center text-center mt-2 mb-4">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold tracking-wider uppercase mb-2">
+      <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+      Memory Matrix 4x4
+    </div>
+    <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-300 bg-clip-text text-transparent">
+      量子記憶翻牌
+    </h1>
+    <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-sm">
+      翻開卡片找出成對的符號。點擊第一張牌即可啟動計時！
+    </p>
+
+    <!-- 狀態儀表板 -->
+    <div class="grid grid-cols-3 gap-2 sm:gap-4 w-full mt-5 bg-slate-900/80 border border-slate-800 rounded-2xl p-3 sm:p-4 backdrop-blur-sm shadow-xl shadow-black/40">
+      <!-- 步數統計 -->
+      <div class="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-800/40 border border-slate-700/30">
+        <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">翻牌步數</span>
+        <span id="moves-display" class="font-mono-num text-xl sm:text-2xl font-bold text-indigo-400">0</span>
+      </div>
+      <!-- 經過時間 -->
+      <div class="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-800/40 border border-slate-700/30">
+        <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">經過時間</span>
+        <span id="timer-display" class="font-mono-num text-xl sm:text-2xl font-bold text-amber-400">00:00.0</span>
+      </div>
+      <!-- 歷史最高/最佳紀錄 -->
+      <div class="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-800/40 border border-slate-700/30">
+        <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">最佳紀錄</span>
+        <span id="best-display" class="font-mono-num text-sm sm:text-base font-bold text-emerald-400">--</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- 核心遊戲棋盤 (採用事件委派 Event Delegation，單一容器監聽) -->
+  <main class="w-full max-w-md aspect-square mx-auto flex items-center justify-center">
+    <div id="game-board" class="w-full h-full grid grid-cols-4 grid-rows-4 gap-2 sm:gap-3 p-2 sm:p-3 bg-slate-900/50 rounded-2xl border border-slate-800/80 shadow-2xl relative">
+      <!-- 卡片由 JS 高效動態建構 -->
+    </div>
+  </main>
+
+  <!-- 底部操作按鈕與提示 -->
+  <footer class="w-full max-w-md mx-auto flex flex-col items-center gap-3 mt-4 mb-2">
+    <div class="flex items-center gap-3 w-full">
+      <button id="btn-restart" class="flex-1 py-3 px-4 rounded-xl font-bold text-sm sm:text-base bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition-all duration-150 shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 text-white cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        重新開始 (R)
+      </button>
+      <button id="btn-clear-record" title="清除本地紀錄" class="py-3 px-3 rounded-xl font-semibold text-xs sm:text-sm bg-slate-800 hover:bg-slate-700 active:scale-[0.98] transition-all text-slate-400 hover:text-rose-400 border border-slate-700 cursor-pointer">
+        重設紀錄
+      </button>
+    </div>
+    <p class="text-[11px] text-slate-500">
+      支援鍵盤快速鍵：按下 <kbd class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10px]">R</kbd> 隨時重新開局
+    </p>
+  </footer>
+
+  <!-- 通關結算彈窗 (Custom Modal，絕不使用 alert) -->
+  <div id="modal-victory" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 opacity-0 pointer-events-none transition-all duration-300">
+    <div class="bg-slate-900 border border-slate-700/80 rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl shadow-indigo-950/50 transform scale-95 transition-all duration-300">
+      <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 text-3xl">
+        🎉
+      </div>
+      <h2 class="text-2xl font-black text-white tracking-tight">任務完成！</h2>
+      <p class="text-xs text-slate-400 mt-1 mb-6">您已成功還原所有量子符號陣列。</p>
+
+      <div class="bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 grid grid-cols-2 gap-3 mb-6">
+        <div>
+          <span class="block text-[11px] text-slate-400 uppercase font-semibold">總步數</span>
+          <span id="final-moves" class="font-mono-num text-xl font-bold text-indigo-300">0</span>
+        </div>
+        <div>
+          <span class="block text-[11px] text-slate-400 uppercase font-semibold">通關耗時</span>
+          <span id="final-time" class="font-mono-num text-xl font-bold text-amber-300">00:00.0</span>
+        </div>
+      </div>
+
+      <div id="new-record-badge" class="hidden mb-6 py-1.5 px-3 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold animate-pulse">
+        ✨ 破紀錄！刷新最佳通關時間！
+      </div>
+
+      <button id="btn-modal-restart" class="w-full py-3.5 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition-all cursor-pointer">
+        再玩一局
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * Cyber Flip - 記憶翻牌核心引擎
+     * 遵循 C + C + B + C 架構標準：
+     * 1. 遊戲時間循環：使用 requestAnimationFrame 與時間戳計算真實 Delta Time
+     * 2. 狀態管理機：IDLE, PLAYING, LOCKED, GAMEOVER，記憶體重置零重新整理
+     * 3. 本地儲存：SafeStorage 防禦層 (封裝 try/catch 與極端邊界校驗)
+     * 4. 操作響應：點擊代理 (Event Delegation) 與門衛輸入鎖 (Input Lock)
+     */
+
+    // 8 組精心挑選的高對比度科技符號 (成對共 16 張)
+    const SYMBOL_SET = ['⚡', '🔮', '🛰️', '🧬', '👾', '🪐', '💎', '🔥'];
+
+    // 狀態機常數定義
+    const GameState = Object.freeze({
+      IDLE: 'IDLE',         // 初始未動，計時未啟動
+      PLAYING: 'PLAYING',   // 進行中，計時循環運作
+      LOCKED: 'LOCKED',     // 比對動畫中，拒絕一切新輸入
+      GAMEOVER: 'GAMEOVER'  // 配對全部完成
+    });
+
+    // -------------------------------------------------------------
+    // 模組 3: 防禦型 SafeStorage (完全防禦無痕模式崩潰與資料竄改)
+    // -------------------------------------------------------------
+    const SafeStorage = {
+      KEY_BEST_TIME: 'cyberflip_best_time_ms',
+      KEY_BEST_MOVES: 'cyberflip_best_moves',
+
+      get(key, fallback = null) {
+        try {
+          const item = window.localStorage.getItem(key);
+          if (item === null) return fallback;
+          const parsed = Number(item);
+          return (Number.isFinite(parsed) && parsed > 0) ? parsed : fallback;
+        } catch (e) {
+          // 隱私模式阻擋或儲存損毀，平穩降級
+          console.warn('[SafeStorage] 讀取受限，降級記憶體模式:', e);
+          return fallback;
+        }
+      },
+
+      set(key, value) {
+        try {
+          window.localStorage.setItem(key, String(value));
+          return true;
+        } catch (e) {
+          console.warn('[SafeStorage] 寫入受限 (無痕或配額已滿):', e);
+          return false;
+        }
+      },
+
+      remove(key) {
+        try {
+          window.localStorage.removeItem(key);
+        } catch (e) {
+          console.warn('[SafeStorage] 清除受限:', e);
+        }
+      }
+    };
+
+    // -------------------------------------------------------------
+    // 核心遊戲狀態封裝 (In-Memory State)
+    // -------------------------------------------------------------
+    const game = {
+      state: GameState.IDLE,
+      cards: [],            // 卡片資料陣列 [{ id, symbol, isMatched, isFlipped }]
+      firstCardIdx: null,   // 當前翻開的第一張卡片索引
+      matchedPairs: 0,      // 當前配對完成對數
+      moves: 0,             // 當前翻牌步數 (每翻兩張算一步)
+      
+      // 計時器模組 (基於 requestAnimationFrame + Delta Time)
+      elapsedMs: 0,
+      lastTimestamp: 0,
+      rafId: null,
+
+      // 本地最佳紀錄快取
+      bestTimeMs: SafeStorage.get(SafeStorage.KEY_BEST_TIME, null),
+      bestMoves: SafeStorage.get(SafeStorage.KEY_BEST_MOVES, null)
+    };
+
+    // DOM 元素引用快取 (避免重複 querySelector 消耗效能)
+    const elements = {
+      board: document.getElementById('game-board'),
+      movesDisplay: document.getElementById('moves-display'),
+      timerDisplay: document.getElementById('timer-display'),
+      bestDisplay: document.getElementById('best-display'),
+      btnRestart: document.getElementById('btn-restart'),
+      btnClearRecord: document.getElementById('btn-clear-record'),
+      modalVictory: document.getElementById('modal-victory'),
+      finalMoves: document.getElementById('final-moves'),
+      finalTime: document.getElementById('final-time'),
+      newRecordBadge: document.getElementById('new-record-badge'),
+      btnModalRestart: document.getElementById('btn-modal-restart')
+    };
+
+    // -------------------------------------------------------------
+    // 工具函式：格式化時間與 Fisher-Yates 洗牌演算法
+    // -------------------------------------------------------------
+    function formatTime(totalMs) {
+      const minutes = Math.floor(totalMs / 60000);
+      const seconds = Math.floor((totalMs % 60000) / 1000);
+      const tenths = Math.floor((totalMs % 1000) / 100);
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${tenths}`;
+    }
+
+    function shuffleArray(array) {
+      const arr = [...array];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // -------------------------------------------------------------
+    // 模組 1: 遊戲迴圈與時間計算 (requestAnimationFrame + Delta Time)
+    // -------------------------------------------------------------
+    function gameLoop(currentTimestamp) {
+      if (game.state !== GameState.PLAYING && game.state !== GameState.LOCKED) {
+        return; // 遊戲已停止或完成
+      }
+
+      if (game.lastTimestamp > 0) {
+        const delta = currentTimestamp - game.lastTimestamp;
+        // 防禦機制：若分頁切換過久，限制單幀最大時間補償為 200ms，防止極端時間跳躍
+        game.elapsedMs += Math.min(delta, 200);
+      }
+      game.lastTimestamp = currentTimestamp;
+      elements.timerDisplay.textContent = formatTime(game.elapsedMs);
+
+      game.rafId = requestAnimationFrame(gameLoop);
+    }
+
+    function startTimer() {
+      if (game.rafId) cancelAnimationFrame(game.rafId);
+      game.lastTimestamp = performance.now();
+      game.rafId = requestAnimationFrame(gameLoop);
+    }
+
+    function stopTimer() {
+      if (game.rafId) {
+        cancelAnimationFrame(game.rafId);
+        game.rafId = null;
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 畫面更新與 DOM 卡片生成
+    // -------------------------------------------------------------
+    function updateBestDisplay() {
+      if (game.bestTimeMs !== null) {
+        elements.bestDisplay.textContent = `${formatTime(game.bestTimeMs)}`;
+      } else {
+        elements.bestDisplay.textContent = '--';
+      }
+    }
+
+    function renderBoard() {
+      elements.board.innerHTML = '';
+      const fragment = document.createDocumentFragment();
+
+      game.cards.forEach((card, index) => {
+        // 卡片 3D 容器
+        const cardEl = document.createElement('div');
+        cardEl.className = 'card relative w-full h-full perspective-1000 cursor-pointer';
+        cardEl.dataset.index = index;
+
+        // 翻轉卡片內膽
+        const innerEl = document.createElement('div');
+        innerEl.className = 'card-inner w-full h-full transition-transform duration-300 transform-style-3d rounded-xl sm:rounded-2xl relative shadow-md';
+        innerEl.id = `card-inner-${index}`;
+
+        // 正面 (蓋牌狀態)
+        const frontEl = document.createElement('div');
+        frontEl.className = 'card-front absolute inset-0 backface-hidden bg-slate-800 border border-slate-700/80 hover:border-indigo-500/50 rounded-xl sm:rounded-2xl flex items-center justify-center transition-colors group';
+        frontEl.innerHTML = `
+          <div class="w-3 h-3 rounded-full bg-slate-700/60 group-hover:bg-indigo-500/60 transition-all duration-300"></div>
+        `;
+
+        // 背面 (掀開狀態，顯示符號)
+        const backEl = document.createElement('div');
+        backEl.className = 'card-back absolute inset-0 backface-hidden rotate-y-180 bg-slate-800/90 border-2 border-indigo-500/80 rounded-xl sm:rounded-2xl flex items-center justify-center text-2xl sm:text-4xl shadow-inner';
+        backEl.textContent = card.symbol;
+
+        innerEl.appendChild(frontEl);
+        innerEl.appendChild(backEl);
+        cardEl.appendChild(innerEl);
+        fragment.appendChild(cardEl);
+      });
+
+      elements.board.appendChild(fragment);
+    }
+
+    function setCardVisualFlipped(index, isFlipped) {
+      const inner = document.getElementById(`card-inner-${index}`);
+      if (!inner) return;
+      if (isFlipped) {
+        inner.classList.add('rotate-y-180');
+      } else {
+        inner.classList.remove('rotate-y-180');
+      }
+    }
+
+    function setCardVisualMatched(index) {
+      const cardEl = elements.board.querySelector(`.card[data-index="${index}"]`);
+      const inner = document.getElementById(`card-inner-${index}`);
+      if (!inner || !cardEl) return;
+      
+      const back = inner.querySelector('.card-back');
+      if (back) {
+        back.classList.remove('border-indigo-500/80');
+        back.classList.add('border-emerald-400', 'bg-emerald-950/60', 'text-emerald-300');
+      }
+
+      // 觸發縮小淡出消失動畫
+      inner.classList.add('animate-matched');
+
+      // 停用該卡片的所有指標事件，防止任何後續誤觸
+      cardEl.classList.remove('cursor-pointer');
+      cardEl.classList.add('pointer-events-none');
+    }
+
+    function setCardVisualMismatch(index) {
+      const inner = document.getElementById(`card-inner-${index}`);
+      if (!inner) return;
+      inner.classList.add('animate-shake');
+      setTimeout(() => {
+        inner.classList.remove('animate-shake');
+      }, 400);
+    }
+
+    // -------------------------------------------------------------
+    // 模組 4: 點擊輸入鎖與安全校驗 (Gatekeeper Pattern)
+    // -------------------------------------------------------------
+    function handleCardClick(clickedIndex) {
+      const targetCard = game.cards[clickedIndex];
+
+      // 嚴密防禦校驗：
+      // 1. 若處於鎖定 (LOCKED) 或遊戲結束 (GAMEOVER) 狀態 -> 拒絕
+      if (game.state === GameState.LOCKED || game.state === GameState.GAMEOVER) return;
+      // 2. 目標卡片無效、已配對、或已被掀開 -> 拒絕
+      if (!targetCard || targetCard.isMatched || targetCard.isFlipped) return;
+      // 3. 點擊了同一張剛剛翻開的第一張卡片 -> 拒絕
+      if (game.firstCardIdx === clickedIndex) return;
+
+      // 若遊戲仍處於 IDLE，則翻開第一張時自動進入 PLAYING 並開始計時
+      if (game.state === GameState.IDLE) {
+        game.state = GameState.PLAYING;
+        startTimer();
+      }
+
+      // 執行翻開
+      targetCard.isFlipped = true;
+      setCardVisualFlipped(clickedIndex, true);
+
+      // 第一張牌被翻開
+      if (game.firstCardIdx === null) {
+        game.firstCardIdx = clickedIndex;
+        return;
+      }
+
+      // 第二張牌被翻開：步數累加，切換狀態為 LOCKED (輸入鎖生效，阻止後續暴點)
+      game.moves++;
+      elements.movesDisplay.textContent = game.moves;
+      game.state = GameState.LOCKED;
+
+      const firstIndex = game.firstCardIdx;
+      const firstCard = game.cards[firstIndex];
+
+      // 比對兩張牌的符號是否相同
+      if (firstCard.symbol === targetCard.symbol) {
+        // === 配對成功 ===
+        firstCard.isMatched = true;
+        targetCard.isMatched = true;
+        game.matchedPairs++;
+
+        // 觸發配對消失動畫
+        setCardVisualMatched(firstIndex);
+        setCardVisualMatched(clickedIndex);
+
+        setTimeout(() => {
+          // 清理翻牌緩衝，解除輸入鎖
+          game.firstCardIdx = null;
+          game.state = GameState.PLAYING;
+
+          // 檢查是否所有對數都已匹配完畢 (4x4 = 8 對)
+          if (game.matchedPairs === SYMBOL_SET.length) {
+            handleVictory();
+          }
+        }, 550);
+      } else {
+        // === 配對失敗 ===
+        setTimeout(() => {
+          setCardVisualMismatch(firstIndex);
+          setCardVisualMismatch(clickedIndex);
+        }, 200);
+
+        setTimeout(() => {
+          firstCard.isFlipped = false;
+          targetCard.isFlipped = false;
+          setCardVisualFlipped(firstIndex, false);
+          setCardVisualFlipped(clickedIndex, false);
+
+          // 解除輸入鎖，恢復遊戲
+          game.firstCardIdx = null;
+          game.state = GameState.PLAYING;
+        }, 750);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 結算與通關判定
+    // -------------------------------------------------------------
+    function handleVictory() {
+      game.state = GameState.GAMEOVER;
+      stopTimer();
+
+      const currentTime = game.elapsedMs;
+      const currentMoves = game.moves;
+
+      // 檢查是否打破最佳時間紀錄
+      let isNewRecord = false;
+      if (game.bestTimeMs === null || currentTime < game.bestTimeMs) {
+        game.bestTimeMs = currentTime;
+        game.bestMoves = currentMoves;
+        SafeStorage.set(SafeStorage.KEY_BEST_TIME, currentTime);
+        SafeStorage.set(SafeStorage.KEY_BEST_MOVES, currentMoves);
+        updateBestDisplay();
+        isNewRecord = true;
+      }
+
+      // 填寫結算面板資訊
+      elements.finalMoves.textContent = currentMoves;
+      elements.finalTime.textContent = formatTime(currentTime);
+
+      if (isNewRecord) {
+        elements.newRecordBadge.classList.remove('hidden');
+      } else {
+        elements.newRecordBadge.classList.add('hidden');
+      }
+
+      // 顯示彈窗
+      elements.modalVictory.classList.remove('opacity-0', 'pointer-events-none');
+      elements.modalVictory.querySelector('div').classList.remove('scale-95');
+      elements.modalVictory.querySelector('div').classList.add('scale-100');
+    }
+
+    // -------------------------------------------------------------
+    // 模組 2: 零重載重置 (In-Memory State Reset，不調用 location.reload)
+    // -------------------------------------------------------------
+    function resetGame() {
+      // 1. 銷毀運行中的計時迴圈
+      stopTimer();
+
+      // 2. 關閉結算彈窗 (如果開啟中)
+      elements.modalVictory.classList.add('opacity-0', 'pointer-events-none');
+      elements.modalVictory.querySelector('div').classList.add('scale-95');
+      elements.modalVictory.querySelector('div').classList.remove('scale-100');
+
+      // 3. 重設內部資料狀態
+      game.state = GameState.IDLE;
+      game.firstCardIdx = null;
+      game.matchedPairs = 0;
+      game.moves = 0;
+      game.elapsedMs = 0;
+      game.lastTimestamp = 0;
+
+      // 4. 重洗卡片牌組 (8組符號成對共16張)
+      const deckSymbols = shuffleArray([...SYMBOL_SET, ...SYMBOL_SET]);
+      game.cards = deckSymbols.map((symbol, idx) => ({
+        id: idx,
+        symbol: symbol,
+        isMatched: false,
+        isFlipped: false
+      }));
+
+      // 5. 更新 DOM 介面
+      elements.movesDisplay.textContent = '0';
+      elements.timerDisplay.textContent = '00:00.0';
+      updateBestDisplay();
+      renderBoard();
+    }
+
+    // -------------------------------------------------------------
+    // 事件監聽全域綁定 (只綁定一次，杜絕記憶體洩漏與重複監聽)
+    // -------------------------------------------------------------
+    function setupEventListeners() {
+      // 棋盤點擊代理 (Event Delegation)：統一在容器層解析卡片點擊
+      elements.board.addEventListener('click', (e) => {
+        const cardEl = e.target.closest('.card');
+        if (!cardEl) return;
+        const index = parseInt(cardEl.dataset.index, 10);
+        if (!Number.isNaN(index)) {
+          handleCardClick(index);
+        }
+      });
+
+      // 重新開始按鈕
+      elements.btnRestart.addEventListener('click', resetGame);
+      elements.btnModalRestart.addEventListener('click', resetGame);
+
+      // 清除本地紀錄按鈕
+      elements.btnClearRecord.addEventListener('click', () => {
+        SafeStorage.remove(SafeStorage.KEY_BEST_TIME);
+        SafeStorage.remove(SafeStorage.KEY_BEST_MOVES);
+        game.bestTimeMs = null;
+        game.bestMoves = null;
+        updateBestDisplay();
+      });
+
+      // 鍵盤快速鍵支援 (按 R 鍵重置)
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'r' || e.key === 'R') {
+          resetGame();
+        }
+      });
+    }
+
+    // 頁面載入啟動點
+    window.addEventListener('DOMContentLoaded', () => {
+      setupEventListeners();
+      resetGame();
+    });
+  </script>
+</body>
+</html>
